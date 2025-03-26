@@ -17,44 +17,55 @@ from kivy.uix.popup import Popup
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 
+# Set the window size
 Window.size = (1200, 800)
 
+# ------------------ Loading Screen ------------------
 class LoadingScreen(Screen):
     loading_text = StringProperty("Loading")
     counter = NumericProperty(0)
     event = None
+
     def on_enter(self):
         self.counter = 0
         self.loading_text = "Loading"
+        # Update the loading text every 0.5 seconds
         self.event = Clock.schedule_interval(self.update_loading, 0.5)
-        # Extend loading screen to 5 seconds
+        # Keep the loading screen visible for 5 seconds
         Clock.schedule_once(self.switch_to_folder_screen, 5)
+
     def update_loading(self, dt):
         self.counter = (self.counter + 1) % 4
         self.loading_text = "Loading" + "." * self.counter
+
     def switch_to_folder_screen(self, dt):
         if self.event:
             self.event.cancel()
         self.manager.current = 'folder_selection'
 
+# ------------------ Folder Selection Screen ------------------
 class FolderSelectionScreen(Screen):
     image_folder = StringProperty("")
     label_folder = StringProperty("")
     image_count = NumericProperty(0)
     label_count = NumericProperty(0)
+
     def validate_folders(self):
         images_exist = False
         labels_exist = False
+        # Check if the image folder exists and contains image files
         if os.path.isdir(self.image_folder):
             images = [fname for fname in os.listdir(self.image_folder)
                       if fname.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
             images_exist = len(images) > 0
             self.image_count = len(images)
+        # Check if the label folder exists and contains text files
         if os.path.isdir(self.label_folder):
             labels = [fname for fname in os.listdir(self.label_folder)
                       if fname.lower().endswith('.txt')]
             labels_exist = len(labels) > 0
             self.label_count = len(labels)
+        # Display warning if either folder is invalid
         if not images_exist or not labels_exist:
             self.ids.warning_label.text = "Warning: Folders must contain valid image and text files."
         else:
@@ -63,9 +74,11 @@ class FolderSelectionScreen(Screen):
             sample_screen.load_first_image(self.image_folder)
             sample_screen.update_total_augmented()
             self.manager.current = 'sample'
+
     def browse_folder(self, folder_type):
         content = BoxLayout(orientation='vertical')
         from kivy.uix.filechooser import FileChooserListView
+        # Set the start path for browsing folders
         if folder_type == 'label' and self.image_folder:
             start_path = os.path.dirname(self.image_folder)
         else:
@@ -77,6 +90,7 @@ class FolderSelectionScreen(Screen):
         popup = Popup(title="Select Folder", content=content, size_hint=(0.9, 0.9))
         select_button.bind(on_release=lambda x: self._set_folder(filechooser, folder_type, popup))
         popup.open()
+
     def _set_folder(self, filechooser, folder_type, popup):
         selected_path = filechooser.selection[0] if filechooser.selection else filechooser.path
         if folder_type == 'image':
@@ -88,6 +102,7 @@ class FolderSelectionScreen(Screen):
             except Exception:
                 self.image_count = 0
             self.ids.image_count_label.text = f"Image files: {self.image_count}"
+            # If a "labels" subfolder exists, use it as the label folder
             candidate = os.path.join(selected_path, "labels")
             if os.path.isdir(candidate):
                 self.label_folder = candidate
@@ -109,22 +124,29 @@ class FolderSelectionScreen(Screen):
             self.ids.label_count_label.text = f"Label files: {self.label_count}"
         popup.dismiss()
 
+# ------------------ Sample Screen ------------------
 class SampleScreen(Screen):
     image_folder = StringProperty("")
     current_index = NumericProperty(0)
     current_filter = StringProperty("Salt and Pepper")
     filter_settings = DictProperty({})
+
     def __init__(self, **kwargs):
         super(SampleScreen, self).__init__(**kwargs)
         filters = ["Salt and Pepper", "Brightness Increase", "Brightness Decrease",
                    "Saturation Increase", "Blur", "Sunlight", "Shake Blur", "Shadow", "Hue"]
+        # Initialize default settings for each filter
         self.filter_settings = {f: {"count": 1, "intensity": 50} for f in filters}
+
     def on_pre_enter(self):
+        # Set spinner text to the current filter
         self.ids.filter_spinner.text = self.current_filter
+
     def load_first_image(self, folder):
         self.image_folder = folder
         self.current_index = 0
         self.display_image()
+
     def display_image(self):
         image_files = [f for f in os.listdir(self.image_folder)
                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
@@ -132,29 +154,47 @@ class SampleScreen(Screen):
             path = os.path.join(self.image_folder, image_files[self.current_index])
             self.ids.sample_image.source = path
             self.update_preview()
+
     def next_image(self):
         image_files = [f for f in os.listdir(self.image_folder)
                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
         if image_files:
             self.current_index = (self.current_index + 1) % len(image_files)
             self.display_image()
+
     def prev_image(self):
         image_files = [f for f in os.listdir(self.image_folder)
                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
         if image_files:
             self.current_index = (self.current_index - 1) % len(image_files)
             self.display_image()
+
     def on_filter_change(self, new_filter):
+        # Save current filter settings before switching
         self.save_current_filter_settings()
+        # Change current filter
         self.current_filter = new_filter
-        self.ids.filter_count.text = str(self.filter_settings.get(new_filter, {}).get("count", 1))
-        self.ids.filter_slider.value = self.filter_settings.get(new_filter, {}).get("intensity", 50)
+        # Retrieve saved intensity for the new filter; if none exists, use current slider value
+        intensity = self.filter_settings.get(new_filter, {}).get("intensity")
+        if intensity is None:
+            intensity = self.ids.filter_slider.value
+            self.filter_settings[new_filter] = {
+                "count": int(self.ids.filter_count.text),
+                "intensity": intensity
+            }
+        # Update the slider and count TextInput with saved values
+        self.ids.filter_slider.value = intensity
+        self.ids.filter_count.text = str(self.filter_settings[new_filter]["count"])
         self.update_preview()
         self.update_total_augmented()
+
     def on_slider_change(self, value):
+        # Update intensity for the current filter
         self.filter_settings[self.current_filter]["intensity"] = int(value)
         self.update_preview()
+
     def save_current_filter_settings(self):
+        # Save the current count and intensity for the active filter
         try:
             count = int(self.ids.filter_count.text)
         except Exception:
@@ -162,6 +202,7 @@ class SampleScreen(Screen):
         intensity = int(self.ids.filter_slider.value)
         self.filter_settings[self.current_filter] = {"count": count, "intensity": intensity}
         self.update_total_augmented()
+
     def next_filter(self):
         filters = ["Salt and Pepper", "Brightness Increase", "Brightness Decrease",
                    "Saturation Increase", "Blur", "Sunlight", "Shake Blur", "Shadow", "Hue"]
@@ -169,6 +210,7 @@ class SampleScreen(Screen):
         next_index = (current + 1) % len(filters)
         self.ids.filter_spinner.text = filters[next_index]
         self.on_filter_change(filters[next_index])
+
     def update_preview(self):
         source_path = self.ids.sample_image.source
         if not source_path or not os.path.exists(source_path):
@@ -179,6 +221,8 @@ class SampleScreen(Screen):
             print("Error opening image:", e)
             return
         intensity = self.filter_settings[self.current_filter]["intensity"]
+
+        # Apply the selected filter to the image
         if self.current_filter == "Salt and Pepper":
             np_img = np.array(img)
             row, col, ch = np_img.shape
@@ -193,26 +237,26 @@ class SampleScreen(Screen):
             img = Image.fromarray(np.uint8(np_img))
         elif self.current_filter == "Brightness Increase":
             enhancer = ImageEnhance.Brightness(img)
-            factor = 1 + intensity/100.0
+            factor = 1 + intensity / 100.0
             img = enhancer.enhance(factor)
         elif self.current_filter == "Brightness Decrease":
             enhancer = ImageEnhance.Brightness(img)
-            factor = max(0.1, 1 - intensity/100.0)
+            factor = max(0.1, 1 - intensity / 100.0)
             img = enhancer.enhance(factor)
         elif self.current_filter == "Saturation Increase":
             enhancer = ImageEnhance.Color(img)
-            factor = 1 + intensity/100.0
+            factor = 1 + intensity / 100.0
             img = enhancer.enhance(factor)
         elif self.current_filter == "Blur":
-            img = img.filter(ImageFilter.GaussianBlur(radius=intensity/10.0))
+            img = img.filter(ImageFilter.GaussianBlur(radius=intensity / 10.0))
         elif self.current_filter == "Sunlight":
             width, height = img.size
-            points = [(random.randint(0, width-1), random.randint(0, height-1)) for _ in range(3)]
+            points = [(random.randint(0, width - 1), random.randint(0, height - 1)) for _ in range(3)]
             mask = Image.new("L", img.size, 0)
             d = ImageDraw.Draw(mask)
             d.polygon(points, fill=255)
             enhancer = ImageEnhance.Brightness(img)
-            bright_img = enhancer.enhance(1 + intensity/100.0)
+            bright_img = enhancer.enhance(1 + intensity / 100.0)
             img = Image.composite(bright_img, img, mask)
         elif self.current_filter == "Shake Blur":
             iterations = 5
@@ -230,13 +274,14 @@ class SampleScreen(Screen):
             img = Image.fromarray(np.uint8(accum))
         elif self.current_filter == "Shadow":
             img_rgba = img.convert("RGBA")
-            overlay = Image.new("RGBA", img_rgba.size, (0,0,0,0))
+            overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(overlay)
             num_polygons = random.randint(3, 5)
             for _ in range(num_polygons):
                 num_vertices = random.randint(3, 6)
-                points = [(random.randint(0, img_rgba.size[0]-1), random.randint(0, img_rgba.size[1]-1)) for _ in range(num_vertices)]
-                alpha = int(50 + intensity/2)
+                points = [(random.randint(0, img_rgba.size[0] - 1), random.randint(0, img_rgba.size[1] - 1))
+                          for _ in range(num_vertices)]
+                alpha = int(50 + intensity / 2)
                 if alpha > 200:
                     alpha = 200
                 draw.polygon(points, fill=(0, 0, 0, alpha))
@@ -248,11 +293,13 @@ class SampleScreen(Screen):
             h = h.point(lambda i: (i + shift) % 256)
             hsv = Image.merge("HSV", (h, s, v))
             img = hsv.convert("RGB")
+        # Convert image to texture for display in the sample preview
         buffer = BytesIO()
         img.save(buffer, format='PNG')
         buffer.seek(0)
         core_image = CoreImage(buffer, ext="png")
         self.ids.sample_image.texture = core_image.texture
+
     def update_total_augmented(self):
         try:
             image_files = [f for f in os.listdir(self.image_folder)
@@ -260,20 +307,26 @@ class SampleScreen(Screen):
             num_images = len(image_files)
         except Exception:
             num_images = 0
+        # Calculate total augmented images based on filter settings counts
         total_per_image = sum(int(v.get("count", 1)) for v in self.filter_settings.values())
         total_augmented = num_images * total_per_image
         self.ids.total_label.text = f"Total Augmented Images: {total_augmented}"
+
     def next_step(self):
         self.manager.current = 'augmentation'
 
+# ------------------ Augmentation Screen ------------------
 class AugmentationScreen(Screen):
     progress = NumericProperty(0)
+
     def on_pre_enter(self):
         self.update_total_images()
+
     def update_split_label(self, train_value):
         valid_value = 100 - int(train_value)
         self.ids.split_label.text = f"Train: {int(train_value)}% | Valid: {valid_value}%"
         self.update_total_images()
+
     def update_total_images(self):
         sample_screen = self.manager.get_screen('sample')
         try:
@@ -284,6 +337,7 @@ class AugmentationScreen(Screen):
             num_images = 0
         augmented_per_image = sum(int(v.get("count", 1)) for v in sample_screen.filter_settings.values())
         total_augmented = num_images * augmented_per_image
+        # If copying original data, add original image count
         if self.ids.copy_checkbox.active:
             total = total_augmented + num_images
         else:
@@ -292,8 +346,10 @@ class AugmentationScreen(Screen):
         train_count = int(total * train_percent / 100)
         valid_count = total - train_count
         self.ids.total_augmented_label.text = f"Train Images: {train_count} | Valid Images: {valid_count}"
+
     def start_augmentation(self):
         threading.Thread(target=self.run_augmentation, daemon=True).start()
+
     def run_augmentation(self):
         train_percent = int(self.ids.train_slider.value)
         sample_screen = self.manager.get_screen('sample')
@@ -303,6 +359,7 @@ class AugmentationScreen(Screen):
         date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
         output_folder = f"augmenteddata-{date_str}"
         os.makedirs(output_folder, exist_ok=True)
+        # Create subdirectories for training and validation images and labels
         train_img = os.path.join(output_folder, "train", "images")
         train_lbl = os.path.join(output_folder, "train", "labels")
         valid_img = os.path.join(output_folder, "valid", "images")
@@ -316,12 +373,14 @@ class AugmentationScreen(Screen):
         total_steps = len(image_files) * sum(int(v.get("count", 1)) for v in settings.values())
         self.progress = 0
         all_augmented = []
+
         def augment_image(img_path):
             try:
                 img = Image.open(os.path.join(image_folder, img_path)).convert("RGB")
             except Exception:
                 return []
             augmented_files = []
+            # Apply each filter based on its settings
             for filt, params in settings.items():
                 count = int(params.get("count", 1))
                 intensity = int(params.get("intensity", 50))
@@ -341,26 +400,26 @@ class AugmentationScreen(Screen):
                         aug = Image.fromarray(np.uint8(np_img))
                     elif filt == "Brightness Increase":
                         enhancer = ImageEnhance.Brightness(aug)
-                        factor = 1 + intensity/100.0
+                        factor = 1 + intensity / 100.0
                         aug = enhancer.enhance(factor)
                     elif filt == "Brightness Decrease":
                         enhancer = ImageEnhance.Brightness(aug)
-                        factor = max(0.1, 1 - intensity/100.0)
+                        factor = max(0.1, 1 - intensity / 100.0)
                         aug = enhancer.enhance(factor)
                     elif filt == "Saturation Increase":
                         enhancer = ImageEnhance.Color(aug)
-                        factor = 1 + intensity/100.0
+                        factor = 1 + intensity / 100.0
                         aug = enhancer.enhance(factor)
                     elif filt == "Blur":
-                        aug = aug.filter(ImageFilter.GaussianBlur(radius=intensity/10.0))
+                        aug = aug.filter(ImageFilter.GaussianBlur(radius=intensity / 10.0))
                     elif filt == "Sunlight":
                         width, height = aug.size
                         mask = Image.new("L", aug.size, 0)
                         draw = ImageDraw.Draw(mask)
-                        points = [(random.randint(0, width-1), random.randint(0, height-1)) for _ in range(3)]
+                        points = [(random.randint(0, width - 1), random.randint(0, height - 1)) for _ in range(3)]
                         draw.polygon(points, fill=255)
                         enhancer = ImageEnhance.Brightness(aug)
-                        bright_img = enhancer.enhance(1 + intensity/100.0)
+                        bright_img = enhancer.enhance(1 + intensity / 100.0)
                         aug = Image.composite(bright_img, aug, mask)
                     elif filt == "Shake Blur":
                         iterations = 5
@@ -378,13 +437,14 @@ class AugmentationScreen(Screen):
                         aug = Image.fromarray(np.uint8(accum))
                     elif filt == "Shadow":
                         img_rgba = aug.convert("RGBA")
-                        overlay = Image.new("RGBA", img_rgba.size, (0,0,0,0))
+                        overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
                         draw = ImageDraw.Draw(overlay)
                         num_polygons = random.randint(3, 5)
                         for _ in range(num_polygons):
                             num_vertices = random.randint(3, 6)
-                            points = [(random.randint(0, img_rgba.size[0]-1), random.randint(0, img_rgba.size[1]-1)) for _ in range(num_vertices)]
-                            alpha = int(50 + intensity/2)
+                            points = [(random.randint(0, img_rgba.size[0] - 1), random.randint(0, img_rgba.size[1] - 1))
+                                      for _ in range(num_vertices)]
+                            alpha = int(50 + intensity / 2)
                             if alpha > 200:
                                 alpha = 200
                             draw.polygon(points, fill=(0, 0, 0, alpha))
@@ -396,12 +456,14 @@ class AugmentationScreen(Screen):
                         h = h.point(lambda i: (i + shift) % 256)
                         hsv = Image.merge("HSV", (h, s, v))
                         aug = hsv.convert("RGB")
-                    base, ext = os.path.splitext(img_path)
+                    # Create a new file name based on filter and iteration
                     new_name = f"{filt.replace(' ', '_')}_{i}_{img_path}"
                     save_path = os.path.join(output_folder, new_name)
                     aug.save(save_path)
                     augmented_files.append((new_name, img_path))
             return augmented_files
+
+        # Process each image file
         for idx, img_file in enumerate(image_files):
             aug_list = augment_image(img_file)
             all_augmented.extend(aug_list)
@@ -412,6 +474,8 @@ class AugmentationScreen(Screen):
                 self.ids.progress_bar.value = (self.progress / total_steps) * 100
                 self.ids.progress_label.text = f"Progress: {(self.progress/total_steps)*100:.1f}% - Remaining: {remaining:.1f}s"
             update_label()
+
+        # Move augmented files to train or valid folders and copy label contents
         for (aug_name, orig_name) in all_augmented:
             if random.random() < train_percent / 100.0:
                 dest_img = train_img
@@ -420,9 +484,21 @@ class AugmentationScreen(Screen):
                 dest_img = valid_img
                 dest_lbl = valid_lbl
             shutil.move(os.path.join(output_folder, aug_name), os.path.join(dest_img, aug_name))
+            # Build label file name for the augmented image
             label_filename = os.path.splitext(aug_name)[0] + ".txt"
+            # Get the original label file path
+            original_label_path = os.path.join(label_source_folder, os.path.splitext(orig_name)[0] + ".txt")
+            if os.path.exists(original_label_path):
+                # Read the content of the original label file
+                with open(original_label_path, "r") as f:
+                    label_content = f.read()
+            else:
+                label_content = ""
+            # Write the content to the new label file
             with open(os.path.join(dest_lbl, label_filename), "w") as f:
-                f.write(orig_name)
+                f.write(label_content)
+
+        # If the copy original data option is enabled, copy original images and labels as well
         if self.ids.copy_checkbox.active:
             for img_file in image_files:
                 if random.random() < train_percent / 100.0:
@@ -435,6 +511,7 @@ class AugmentationScreen(Screen):
                 label_src = os.path.join(label_source_folder, os.path.splitext(img_file)[0] + ".txt")
                 if os.path.exists(label_src):
                     shutil.copy(label_src, os.path.join(dest_lbl, os.path.basename(label_src)))
+
         @mainthread
         def finish():
             self.ids.progress_label.text = "Augmentation complete!"
@@ -450,6 +527,7 @@ class AugmentationScreen(Screen):
             self.ids.finish_button.bind(on_release=open_and_exit)
         finish()
 
+# ------------------ Main App ------------------
 class AugmentorApp(App):
     def build(self):
         self.title = "Image Augmentor"
